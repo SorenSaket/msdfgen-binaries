@@ -1,21 +1,88 @@
-name: Build All Platforms
+name: Build msdfgen
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [ published ]
+  schedule:
+    # Build daily to stay up to date with msdfgen main
+    - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      msdfgen_ref:
+        description: 'msdfgen git ref (tag like v1.13, or main for latest)'
+        required: false
+        default: 'v1.13'
+      create_release:
+        description: 'Create a GitHub release'
+        type: boolean
+        required: false
+        default: false
 
 env:
   VCPKG_COMMIT: "40c89449f0ccce12d21f8a906639f6c2c649b9e7"
+  # Default to latest stable release
+  DEFAULT_VERSION: "v1.13"
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      msdfgen_ref: ${{ steps.resolve.outputs.msdfgen_ref }}
+      version: ${{ steps.resolve.outputs.version }}
+      is_release: ${{ steps.resolve.outputs.is_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          cd msdfgen
+          git fetch --tags origin
+
+          if [ -n "${{ github.event.inputs.msdfgen_ref }}" ]; then
+            # Manual trigger
+            MSDFGEN_REF="${{ github.event.inputs.msdfgen_ref }}"
+            if [[ "$MSDFGEN_REF" == v* ]]; then
+              VERSION="$MSDFGEN_REF"
+            else
+              VERSION="dev-$(date +%Y%m%d)"
+            fi
+            IS_RELEASE="${{ github.event.inputs.create_release }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Tag push
+            VERSION="${{ github.ref_name }}"
+            MSDFGEN_REF="$VERSION"
+            IS_RELEASE="true"
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            # Scheduled - build main
+            MSDFGEN_REF="main"
+            VERSION="dev-$(date +%Y%m%d)"
+            IS_RELEASE="false"
+          else
+            # Push to main - build latest stable
+            MSDFGEN_REF="${DEFAULT_VERSION}"
+            VERSION="${DEFAULT_VERSION}"
+            IS_RELEASE="false"
+          fi
+
+          echo "msdfgen_ref=${MSDFGEN_REF}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "is_release=${IS_RELEASE}" >> $GITHUB_OUTPUT
+
+          echo "Building msdfgen: ${MSDFGEN_REF} -> ${VERSION}"
+
   build-macos:
+    needs: prepare
     runs-on: macos-14
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: arm64
@@ -24,202 +91,280 @@ jobs:
             triplet: x64-osx
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Install dependencies
-      run: |
-        brew install cmake ninja pkg-config
+      - name: Checkout msdfgen version
+        run: |
+          cd msdfgen
+          git fetch --tags origin
+          git checkout ${{ needs.prepare.outputs.msdfgen_ref }}
+          git log -1 --oneline
 
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        runVcpkgInstall: false
+      - name: Install dependencies
+        run: brew install cmake ninja pkg-config
 
-    - name: Configure CMake
-      run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
-          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-          -G "Ninja" \
-          -DMSDFGEN_USE_SKIA=ON \
-          -DBUILD_SHARED_LIBS=ON \
-          -DMSDFGEN_BUILD_STANDALONE=OFF
-      env:
-        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          runVcpkgInstall: false
 
-    - name: Build
-      run: cmake --build build --config Release --parallel
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -G Ninja \
+            -DMSDFGEN_USE_SKIA=ON \
+            -DBUILD_SHARED_LIBS=ON
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
 
-    - name: Collect artifacts
-      run: |
-        mkdir -p artifacts
-        cp build/lib/*.dylib artifacts/ 2>/dev/null || true
-        cp build/msdfgen/lib*.dylib artifacts/ 2>/dev/null || true
-        # List what we built
-        find build -name "*.dylib" -o -name "*.a" | head -20
+      - name: Build
+        run: cmake --build build --config Release --parallel
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-${{ matrix.arch }}
-        path: artifacts/
-        retention-days: 30
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          V="${{ needs.prepare.outputs.version }}"
+          find build -name "*.dylib" -exec cp {} artifacts/ \;
+          cp src/msdfgen_c_api.h artifacts/
+          cd artifacts
+          for f in *.dylib; do
+            [ -f "$f" ] && mv "$f" "${f%.dylib}-${V}-macos-${{ matrix.arch }}.dylib"
+          done
+          ls -la
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-${{ needs.prepare.outputs.version }}
+          path: artifacts/
+          retention-days: 90
 
   build-windows:
+    needs: prepare
     runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            triplet: x64-windows
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        runVcpkgInstall: false
+      - name: Checkout msdfgen version
+        shell: bash
+        run: |
+          cd msdfgen
+          git fetch --tags origin
+          git checkout ${{ needs.prepare.outputs.msdfgen_ref }}
+          git log -1 --oneline
 
-    - name: Setup MSVC
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: ${{ matrix.arch }}
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          runVcpkgInstall: false
 
-    - name: Configure CMake
-      run: |
-        cmake -B build `
-          -DCMAKE_BUILD_TYPE=Release `
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
-          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
-          -G "Ninja" `
-          -DMSDFGEN_USE_SKIA=ON `
-          -DBUILD_SHARED_LIBS=ON `
-          -DMSDFGEN_BUILD_STANDALONE=OFF
-      env:
-        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-    - name: Build
-      run: cmake --build build --config Release --parallel
+      - name: Configure
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -G Ninja `
+            -DMSDFGEN_USE_SKIA=ON `
+            -DBUILD_SHARED_LIBS=ON
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows
 
-    - name: Collect artifacts
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path artifacts
-        Get-ChildItem -Path build -Recurse -Include *.dll | Copy-Item -Destination artifacts/ -Force
-        Get-ChildItem -Path build -Recurse -Include *.lib | Copy-Item -Destination artifacts/ -Force
+      - name: Build
+        run: cmake --build build --config Release --parallel
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-${{ matrix.arch }}
-        path: artifacts/
-        retention-days: 30
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          $V = "${{ needs.prepare.outputs.version }}"
+          Get-ChildItem -Path build -Recurse -Include *.dll | ForEach-Object {
+            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64.dll"
+          }
+          Get-ChildItem -Path build -Recurse -Include *.lib | ForEach-Object {
+            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64.lib"
+          }
+          Copy-Item src/msdfgen_c_api.h -Destination artifacts/
+          Get-ChildItem artifacts/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-${{ needs.prepare.outputs.version }}
+          path: artifacts/
+          retention-days: 90
 
   build-linux:
+    needs: prepare
     runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            triplet: x64-linux
 
     steps:
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          cmake \
-          ninja-build \
-          pkg-config \
-          curl \
-          unzip \
-          tar \
-          zip \
-          python3 \
-          libgl1-mesa-dev \
-          libglu1-mesa-dev \
-          libx11-dev \
-          libxrandr-dev \
-          libxinerama-dev \
-          libxcursor-dev \
-          libxi-dev \
-          libfontconfig1-dev
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libfontconfig1-dev
 
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        runVcpkgInstall: false
+      - name: Checkout msdfgen version
+        run: |
+          cd msdfgen
+          git fetch --tags origin
+          git checkout ${{ needs.prepare.outputs.msdfgen_ref }}
+          git log -1 --oneline
 
-    - name: Configure CMake
-      run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
-          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-          -G "Ninja" \
-          -DMSDFGEN_USE_SKIA=ON \
-          -DBUILD_SHARED_LIBS=ON \
-          -DMSDFGEN_BUILD_STANDALONE=OFF
-      env:
-        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          runVcpkgInstall: false
 
-    - name: Build
-      run: cmake --build build --config Release --parallel
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -G Ninja \
+            -DMSDFGEN_USE_SKIA=ON \
+            -DBUILD_SHARED_LIBS=ON
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-linux
 
-    - name: Collect artifacts
-      run: |
-        mkdir -p artifacts
-        find build -name "*.so*" -exec cp {} artifacts/ \; 2>/dev/null || true
+      - name: Build
+        run: cmake --build build --config Release --parallel
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-${{ matrix.arch }}
-        path: artifacts/
-        retention-days: 30
+      - name: Package
+        run: |
+          mkdir -p artifacts
+          V="${{ needs.prepare.outputs.version }}"
+          find build -name "*.so*" -type f -exec cp {} artifacts/ \;
+          cp src/msdfgen_c_api.h artifacts/
+          cd artifacts
+          for f in *.so*; do
+            [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-x64.so"
+          done
+          ls -la
 
-  create-release:
-    needs: [build-macos, build-windows, build-linux]
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-${{ needs.prepare.outputs.version }}
+          path: artifacts/
+          retention-days: 90
+
+  release:
+    needs: [prepare, build-macos, build-windows, build-linux]
+    if: needs.prepare.outputs.is_release == 'true'
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    permissions:
+      contents: write
 
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-    - name: Create release packages
-      run: |
-        cd artifacts
-        for dir in */; do
-          name="${dir%/}"
-          zip -r "../${name}.zip" "$dir"
-        done
+      - name: Package
+        run: |
+          V="${{ needs.prepare.outputs.version }}"
+          mkdir -p release
+          cd artifacts
+          for dir in */; do
+            zip -r "../release/${dir%/}.zip" "$dir"
+          done
+          mkdir all && cp -r */. all/
+          cd all && zip -r "../../release/msdfgen-binaries-${V}-all.zip" .
+          ls -la ../release/
 
-    - name: Upload release assets
-      uses: softprops/action-gh-release@v2
-      with:
-        files: "*.zip"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: msdfgen ${{ needs.prepare.outputs.version }}
+          body: |
+            Pre-built msdfgen ${{ needs.prepare.outputs.version }} binaries with Skia geometry preprocessing.
+
+            ## Libraries
+            | Library | Description |
+            |---------|-------------|
+            | `msdfgen-core` | Core MSDF generation |
+            | `msdfgen-ext` | Extensions (FreeType, TinyXML2, libpng, Skia) |
+            | `msdfgen_c` | C API wrapper for FFI/P/Invoke |
+
+            ## Platforms
+            - macOS arm64 (Apple Silicon)
+            - macOS x64 (Intel)
+            - Windows x64
+            - Linux x64
+
+            See [README](https://github.com/${{ github.repository }}) for usage.
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-dev:
+    needs: [prepare, build-macos, build-windows, build-linux]
+    if: needs.prepare.outputs.is_release != 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package
+        run: |
+          mkdir -p release
+          cd artifacts
+          mkdir all && cp -r */. all/
+          cd all && zip -r "../../release/msdfgen-binaries-dev-latest.zip" .
+
+      - name: Update dev release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: Development Build (Latest)
+          body: |
+            Latest development build from msdfgen main branch.
+
+            **Built:** ${{ needs.prepare.outputs.version }}
+            **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_ref }}
+
+            ⚠️ Unstable. Use versioned releases for production.
+          files: release/*
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
