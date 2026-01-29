@@ -7,7 +7,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Build daily to stay up to date with msdfgen main
+    # Check for msdfgen updates daily at 6 AM UTC
     - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
@@ -20,10 +20,14 @@ on:
         type: boolean
         required: false
         default: false
+      force_build:
+        description: 'Force build even if no changes'
+        type: boolean
+        required: false
+        default: false
 
 env:
   VCPKG_COMMIT: "40c89449f0ccce12d21f8a906639f6c2c649b9e7"
-  # Default to latest stable release
   DEFAULT_VERSION: "v1.13"
 
 jobs:
@@ -31,8 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       msdfgen_ref: ${{ steps.resolve.outputs.msdfgen_ref }}
+      msdfgen_sha: ${{ steps.resolve.outputs.msdfgen_sha }}
       version: ${{ steps.resolve.outputs.version }}
       is_release: ${{ steps.resolve.outputs.is_release }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,11 +46,16 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Resolve version
+      - name: Resolve version and check for changes
         id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd msdfgen
           git fetch --tags origin
+          git fetch origin main
+
+          SHOULD_BUILD="true"
 
           if [ -n "${{ github.event.inputs.msdfgen_ref }}" ]; then
             # Manual trigger
@@ -55,16 +66,41 @@ jobs:
               VERSION="dev-$(date +%Y%m%d)"
             fi
             IS_RELEASE="${{ github.event.inputs.create_release }}"
+            if [ "${{ github.event.inputs.force_build }}" != "true" ] && [ "$IS_RELEASE" != "true" ]; then
+              # Check if we need to build
+              MSDFGEN_SHA=$(git rev-parse "$MSDFGEN_REF")
+            fi
           elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # Tag push
+            # Tag push - always build
             VERSION="${{ github.ref_name }}"
             MSDFGEN_REF="$VERSION"
             IS_RELEASE="true"
           elif [ "${{ github.event_name }}" == "schedule" ]; then
-            # Scheduled - build main
+            # Scheduled - check if msdfgen main has new commits
             MSDFGEN_REF="main"
             VERSION="dev-$(date +%Y%m%d)"
             IS_RELEASE="false"
+
+            # Get current main SHA
+            MSDFGEN_SHA=$(git rev-parse origin/main)
+
+            # Get the SHA from the last dev-latest release
+            cd ..
+            LAST_SHA=""
+            if gh release view dev-latest --json body -q '.body' 2>/dev/null | grep -oP 'msdfgen@\K[a-f0-9]+' > /tmp/last_sha; then
+              LAST_SHA=$(cat /tmp/last_sha)
+            fi
+
+            echo "Current msdfgen SHA: $MSDFGEN_SHA"
+            echo "Last built SHA: $LAST_SHA"
+
+            if [ "$MSDFGEN_SHA" == "$LAST_SHA" ]; then
+              echo "No changes in msdfgen since last build. Skipping."
+              SHOULD_BUILD="false"
+            else
+              echo "msdfgen has new commits. Building."
+            fi
+            cd msdfgen
           else
             # Push to main - build latest stable
             MSDFGEN_REF="${DEFAULT_VERSION}"
@@ -72,14 +108,25 @@ jobs:
             IS_RELEASE="false"
           fi
 
+          # Get the SHA for the ref we're building
+          MSDFGEN_SHA=$(git rev-parse "$MSDFGEN_REF" 2>/dev/null || git rev-parse "origin/$MSDFGEN_REF" 2>/dev/null || echo "")
+
           echo "msdfgen_ref=${MSDFGEN_REF}" >> $GITHUB_OUTPUT
+          echo "msdfgen_sha=${MSDFGEN_SHA}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "is_release=${IS_RELEASE}" >> $GITHUB_OUTPUT
+          echo "should_build=${SHOULD_BUILD}" >> $GITHUB_OUTPUT
 
-          echo "Building msdfgen: ${MSDFGEN_REF} -> ${VERSION}"
+          echo "Summary:"
+          echo "  Ref: ${MSDFGEN_REF}"
+          echo "  SHA: ${MSDFGEN_SHA}"
+          echo "  Version: ${VERSION}"
+          echo "  Is Release: ${IS_RELEASE}"
+          echo "  Should Build: ${SHOULD_BUILD}"
 
   build-macos:
     needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -149,6 +196,7 @@ jobs:
 
   build-windows:
     needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
     runs-on: windows-latest
 
     steps:
@@ -215,6 +263,7 @@ jobs:
 
   build-linux:
     needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
 
     steps:
@@ -333,7 +382,7 @@ jobs:
 
   update-dev:
     needs: [prepare, build-macos, build-windows, build-linux]
-    if: needs.prepare.outputs.is_release != 'true' && github.event_name != 'pull_request'
+    if: needs.prepare.outputs.is_release != 'true' && needs.prepare.outputs.should_build == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -360,7 +409,7 @@ jobs:
             Latest development build from msdfgen main branch.
 
             **Built:** ${{ needs.prepare.outputs.version }}
-            **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_ref }}
+            **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_sha }}
 
             ⚠️ Unstable. Use versioned releases for production.
           files: release/*
