@@ -1,0 +1,63 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: 'latest'
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+
+    - name: Install dependencies
+      run: |
+        brew install cmake ninja
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+          -G "Ninja" \
+          -DMSDFGEN_USE_SKIA=ON \
+          -DBUILD_SHARED_LIBS=ON \
+          -DMSDFGEN_BUILD_STANDALONE=ON
+
+    - name: Build
+      run: |
+        cmake --build build --config Release --parallel
+
+    - name: Package
+      run: |
+        cmake --build build --target package-all --config Release
+
+    - name: Upload artifacts
+      if: github.event_name == 'push' || github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-binaries
+        path: build/packages/macos-x64/
+        retention-days: 30
+
+    - name: Upload release assets
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: build/packages/macos-x64/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

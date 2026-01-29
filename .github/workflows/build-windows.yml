@@ -1,0 +1,71 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        arch: [x64]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: 'latest'
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgTriplet: 'x64-windows'
+
+    - name: Setup MSVC Developer Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{ matrix.arch }}
+
+    - name: Configure CMake
+      run: |
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
+          -DVCPKG_TARGET_TRIPLET=x64-windows `
+          -G "Visual Studio 17 2022" `
+          -A ${{ matrix.arch }} `
+          -DMSDFGEN_USE_SKIA=ON `
+          -DBUILD_SHARED_LIBS=ON `
+          -DMSDFGEN_BUILD_STANDALONE=ON
+
+    - name: Build
+      run: |
+        cmake --build build --config Release --parallel
+
+    - name: Package
+      run: |
+        cmake --build build --target package-all --config Release
+
+    - name: Upload artifacts
+      if: github.event_name == 'push' || github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-${{ matrix.arch }}-binaries
+        path: build/packages/windows-${{ matrix.arch }}/
+        retention-days: 30
+
+    - name: Upload release assets
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: build/packages/windows-${{ matrix.arch }}/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
