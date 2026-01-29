@@ -1,0 +1,225 @@
+name: Build All Platforms
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+env:
+  VCPKG_COMMIT: "40c89449f0ccce12d21f8a906639f6c2c649b9e7"
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            triplet: arm64-osx
+          - arch: x64
+            triplet: x64-osx
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        brew install cmake ninja pkg-config
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        runVcpkgInstall: false
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+          -G "Ninja" \
+          -DMSDFGEN_USE_SKIA=ON \
+          -DBUILD_SHARED_LIBS=ON \
+          -DMSDFGEN_BUILD_STANDALONE=OFF
+      env:
+        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Collect artifacts
+      run: |
+        mkdir -p artifacts
+        cp build/lib/*.dylib artifacts/ 2>/dev/null || true
+        cp build/msdfgen/lib*.dylib artifacts/ 2>/dev/null || true
+        # List what we built
+        find build -name "*.dylib" -o -name "*.a" | head -20
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-${{ matrix.arch }}
+        path: artifacts/
+        retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            triplet: x64-windows
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        runVcpkgInstall: false
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: ${{ matrix.arch }}
+
+    - name: Configure CMake
+      run: |
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
+          -G "Ninja" `
+          -DMSDFGEN_USE_SKIA=ON `
+          -DBUILD_SHARED_LIBS=ON `
+          -DMSDFGEN_BUILD_STANDALONE=OFF
+      env:
+        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Collect artifacts
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts
+        Get-ChildItem -Path build -Recurse -Include *.dll | Copy-Item -Destination artifacts/ -Force
+        Get-ChildItem -Path build -Recurse -Include *.lib | Copy-Item -Destination artifacts/ -Force
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-${{ matrix.arch }}
+        path: artifacts/
+        retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            triplet: x64-linux
+
+    steps:
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          ninja-build \
+          pkg-config \
+          curl \
+          unzip \
+          tar \
+          zip \
+          python3 \
+          libgl1-mesa-dev \
+          libglu1-mesa-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libfontconfig1-dev
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        runVcpkgInstall: false
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+          -G "Ninja" \
+          -DMSDFGEN_USE_SKIA=ON \
+          -DBUILD_SHARED_LIBS=ON \
+          -DMSDFGEN_BUILD_STANDALONE=OFF
+      env:
+        VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Collect artifacts
+      run: |
+        mkdir -p artifacts
+        find build -name "*.so*" -exec cp {} artifacts/ \; 2>/dev/null || true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-${{ matrix.arch }}
+        path: artifacts/
+        retention-days: 30
+
+  create-release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create release packages
+      run: |
+        cd artifacts
+        for dir in */; do
+          name="${dir%/}"
+          zip -r "../${name}.zip" "$dir"
+        done
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: "*.zip"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

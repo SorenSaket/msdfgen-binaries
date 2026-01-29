@@ -11,9 +11,6 @@ packages/
 # vcpkg
 vcpkg/
 
-# Submodule
-msdfgen/
-
 # CMake generated files
 CMakeCache.txt
 CMakeFiles/

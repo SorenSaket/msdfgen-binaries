@@ -1,69 +1,60 @@
 # MSDFGEN Binary Builds
 
-This repository contains automated builds of [MSDFGEN](https://github.com/Chlumsky/msdfgen) with Skia geometry preprocessing enabled as dynamic libraries for multiple platforms.
-
-## What is MSDFGEN?
-
-MSDFGEN is a utility for generating signed distance fields from vector shapes and font glyphs. It produces multi-channel signed distance fields that can reproduce sharp corners almost perfectly by utilizing all three color channels.
+Pre-built dynamic libraries for [msdfgen](https://github.com/Chlumsky/msdfgen) with Skia geometry preprocessing support.
 
 ## Features
 
-- **Core Library**: Multi-channel signed distance field generation
-- **Extensions**: Font loading (FreeType), SVG support (TinyXML2), PNG export (libpng)
-- **Skia Integration**: Advanced geometry preprocessing for better edge detection
-- **Cross-Platform**: Windows, macOS, and Linux support
-- **Dynamic Libraries**: Shared libraries (.dll, .so, .dylib) for easy integration
+- **Multi-platform**: macOS (arm64, x64), Windows (x64), Linux (x64)
+- **Skia integration**: Geometry preprocessing for handling overlapping contours and self-intersections
+- **C API wrapper**: Simple C interface for FFI/P/Invoke from other languages
+- **Shared libraries**: Ready-to-use dynamic libraries (.dylib, .dll, .so)
 
-## Build Status
+## Libraries
 
-| Platform | Architecture | Status |
-|----------|-------------|--------|
-| Windows  | x64         | ![Windows](https://github.com/your-username/msdfgen-binaries/workflows/Windows/badge.svg) |
-| macOS    | x64         | ![macOS](https://github.com/your-username/msdfgen-binaries/workflows/macOS/badge.svg) |
-| Linux    | x64         | ![Linux](https://github.com/your-username/msdfgen-binaries/workflows/Linux/badge.svg) |
+| Library | Description |
+|---------|-------------|
+| `msdfgen-core` | Core MSDF generation functionality |
+| `msdfgen-ext` | Extensions (font loading, SVG, PNG support, Skia preprocessing) |
+| `msdfgen_c` | C API wrapper for FFI/P/Invoke |
 
 ## Downloads
 
-Pre-built binaries are available in the [Releases](https://github.com/your-username/msdfgen-binaries/releases) section.
+Pre-built binaries are available in the [Releases](../../releases) section.
 
-### File Naming Convention
+## C API
 
-- `msdfgen-core-{version}-{platform}.{ext}` - Core library only
-- `msdfgen-ext-{version}-{platform}.{ext}` - Extensions library with dependencies
-- `msdfgen-full-{version}-{platform}.{ext}` - Combined core + extensions
+The `msdfgen_c` library provides a simple C interface for use from other languages:
 
-Where:
-- `{version}`: MSDFGEN version (e.g., 1.13.0)
-- `{platform}`: Platform identifier (windows-x64, macos-x64, linux-x64)
-- `{ext}`: Library extension (.dll, .so, .dylib)
+```c
+#include "msdfgen_c_api.h"
 
-## Dependencies
+// Create a shape
+MsdfgenShape shape = msdfgen_shape_create();
 
-This build includes the following dependencies:
+// Add contours and edges
+int contour = msdfgen_shape_add_contour(shape);
+msdfgen_contour_add_quadratic(shape, contour, x0, y0, x1, y1, x2, y2);
 
-- **FreeType**: Font loading and rendering
-- **TinyXML2**: SVG file parsing
-- **libpng**: PNG image output
-- **Skia**: Advanced geometry preprocessing
+// Preprocess with Skia (handles overlapping contours)
+msdfgen_resolve_shape_geometry(shape);
 
-## Usage
+// Normalize and color edges
+msdfgen_shape_normalize(shape);
+msdfgen_edge_coloring_simple(shape, 3.0, 0);
 
-### CMake Integration
+// Generate MTSDF
+MsdfgenResult result = msdfgen_generate_mtsdf(shape, width, height,
+    scaleX, scaleY, translateX, translateY, rangePixels);
 
-```cmake
-find_package(msdfgen REQUIRED)
+// Use result.pixels (RGBA float data)
+// ...
 
-# Link against the full library (core + extensions)
-target_link_libraries(your_target PRIVATE msdfgen::msdfgen)
-
-# Or link individually
-target_link_libraries(your_target PRIVATE 
-    msdfgen::msdfgen-core 
-    msdfgen::msdfgen-ext
-)
+// Cleanup
+msdfgen_free_pixels(result.pixels);
+msdfgen_shape_destroy(shape);
 ```
 
-### Basic Example
+## C++ Usage
 
 ```cpp
 #include <msdfgen.h>
@@ -76,13 +67,15 @@ int main() {
         if (FontHandle *font = loadFont(ft, "path/to/font.ttf")) {
             Shape shape;
             if (loadGlyph(shape, font, 'A')) {
+                // Preprocess with Skia (if available)
+                resolveShapeGeometry(shape);
+
                 shape.normalize();
                 edgeColoringSimple(shape, 3.0);
-                
-                Bitmap<float, 3> msdf(32, 32);
-                SDFTransformation t(Projection(32.0, Vector2(0.125, 0.125)), Range(0.125));
-                generateMSDF(msdf, shape, t);
-                savePng(msdf, "output.png");
+
+                Bitmap<float, 4> mtsdf(32, 32);
+                SDFTransformation t(Projection(32.0, Vector2(0.125, 0.125)), Range(4.0));
+                generateMTSDF(mtsdf, shape, t);
             }
             destroyFont(font);
         }
@@ -96,37 +89,37 @@ int main() {
 
 ### Prerequisites
 
-- CMake 3.15 or higher
-- C++17 compatible compiler
-- vcpkg package manager
+- CMake 3.15+
+- vcpkg
+- C++17 compiler
 
 ### Build Steps
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/msdfgen-binaries.git
+# Clone with submodules
+git clone --recursive https://github.com/user/msdfgen-binaries.git
 cd msdfgen-binaries
 
-# Set up vcpkg (if not already installed)
-export VCPKG_ROOT=/path/to/vcpkg
+# Configure with vcpkg
+cmake -B build \
+    -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake \
+    -DMSDFGEN_USE_SKIA=ON \
+    -DBUILD_SHARED_LIBS=ON
 
-# Configure and build
-mkdir build && cd build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build . --config Release
+# Build
+cmake --build build --config Release
 ```
+
+Libraries are output to `build/lib/` (or `build/bin/` for Windows DLLs).
+
+## Dependencies
+
+Built with vcpkg:
+- freetype - Font loading
+- tinyxml2 - SVG parsing
+- libpng - PNG output
+- skia - Geometry preprocessing
 
 ## License
 
-This project follows the same license as MSDFGEN. See the [original repository](https://github.com/Chlumsky/msdfgen) for license information.
-
-## Contributing
-
-This repository is primarily for automated builds. For contributing to MSDFGEN itself, please visit the [upstream repository](https://github.com/Chlumsky/msdfgen).
-
-## Issues
-
-If you encounter issues with the pre-built binaries, please:
-1. Check if the issue is reproduced with the upstream MSDFGEN build
-2. If it's specific to these binaries, open an issue in this repository
-3. Include your platform, architecture, and specific error details
+msdfgen is licensed under the MIT license. See the [msdfgen repository](https://github.com/Chlumsky/msdfgen) for details.
