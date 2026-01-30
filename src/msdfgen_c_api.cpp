@@ -2,7 +2,6 @@
  * C API wrapper implementation for msdfgen library
  */
 
-#define MSDFGEN_C_API_EXPORTS
 #include "msdfgen_c_api.h"
 #include "msdfgen.h"
 #include "msdfgen-ext.h"
@@ -258,8 +257,9 @@ MsdfgenErrorCorrectionConfig msdfgen_error_correction_config_default(void) {
     MsdfgenErrorCorrectionConfig config;
     config.mode = MSDFGEN_ERROR_CORRECTION_EDGE_PRIORITY;
     config.distanceCheckMode = MSDFGEN_DISTANCE_CHECK_AT_EDGE;
-    config.minDeviationRatio = ErrorCorrectionConfig::defaultMinDeviationRatio;
-    config.minImproveRatio = ErrorCorrectionConfig::defaultMinImproveRatio;
+    // These match msdfgen's default values (10/9 ≈ 1.111...)
+    config.minDeviationRatio = 1.11111111111111111;
+    config.minImproveRatio = 1.11111111111111111;
     return config;
 }
 
