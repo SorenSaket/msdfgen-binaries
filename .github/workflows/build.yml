@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       msdfgen_ref:
-        description: 'msdfgen git ref (tag like v1.13, or main for latest)'
+        description: 'msdfgen git ref (tag like v1.13, or master for latest)'
         required: false
         default: 'v1.13'
       create_release:
@@ -57,7 +57,7 @@ jobs:
         run: |
           cd msdfgen
           git fetch --tags origin
-          git fetch origin main
+          git fetch origin master
 
           SHOULD_BUILD="true"
 
@@ -80,13 +80,13 @@ jobs:
             MSDFGEN_REF="$VERSION"
             IS_RELEASE="true"
           elif [ "${{ github.event_name }}" == "schedule" ]; then
-            # Scheduled - check if msdfgen main has new commits
-            MSDFGEN_REF="main"
+            # Scheduled - check if msdfgen master has new commits
+            MSDFGEN_REF="master"
             VERSION="dev-$(date +%Y%m%d)"
             IS_RELEASE="false"
 
-            # Get current main SHA
-            MSDFGEN_SHA=$(git rev-parse origin/main)
+            # Get current master SHA
+            MSDFGEN_SHA=$(git rev-parse origin/master)
 
             # Get the SHA from the last dev-latest release
             cd ..
@@ -449,7 +449,7 @@ jobs:
           tag_name: dev-latest
           name: Development Build (Latest)
           body: |
-            Latest development build from msdfgen main branch.
+            Latest development build from msdfgen master branch.
 
             **Built:** ${{ needs.prepare.outputs.version }}
             **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_sha }}
