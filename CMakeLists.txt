@@ -60,10 +60,15 @@ target_include_directories(msdfgen-core PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_compile_definitions(msdfgen-core PUBLIC
-    MSDFGEN_USE_CPP11
-    MSDFGEN_PUBLIC=
-)
+target_compile_definitions(msdfgen-core PUBLIC MSDFGEN_USE_CPP11)
+
+# Handle MSDFGEN_PUBLIC for DLL export/import on Windows
+if(WIN32)
+    target_compile_definitions(msdfgen-core PRIVATE "MSDFGEN_PUBLIC=__declspec(dllexport)")
+    target_compile_definitions(msdfgen-core INTERFACE "MSDFGEN_PUBLIC=__declspec(dllimport)")
+else()
+    target_compile_definitions(msdfgen-core PUBLIC MSDFGEN_PUBLIC=)
+endif()
 
 target_compile_features(msdfgen-core PUBLIC cxx_std_11)
 
@@ -98,10 +103,17 @@ target_link_libraries(msdfgen-ext PRIVATE
 
 target_compile_definitions(msdfgen-ext PUBLIC
     MSDFGEN_USE_CPP11
-    MSDFGEN_EXT_PUBLIC=
     MSDFGEN_USE_TINYXML2
     MSDFGEN_USE_LIBPNG
 )
+
+# Handle MSDFGEN_EXT_PUBLIC for DLL export/import on Windows
+if(WIN32)
+    target_compile_definitions(msdfgen-ext PRIVATE "MSDFGEN_EXT_PUBLIC=__declspec(dllexport)")
+    target_compile_definitions(msdfgen-ext INTERFACE "MSDFGEN_EXT_PUBLIC=__declspec(dllimport)")
+else()
+    target_compile_definitions(msdfgen-ext PUBLIC MSDFGEN_EXT_PUBLIC=)
+endif()
 
 if(MSDFGEN_USE_SKIA)
     target_compile_definitions(msdfgen-ext PUBLIC MSDFGEN_USE_SKIA)
