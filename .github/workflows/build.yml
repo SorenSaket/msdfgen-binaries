@@ -201,7 +201,6 @@ jobs:
           mkdir -p artifacts
           V="${{ needs.prepare.outputs.version }}"
           find build -name "*.dylib" -exec cp {} artifacts/ \;
-          cp src/msdfgen_c_api.h artifacts/
           cd artifacts
           for f in *.dylib; do
             [ -f "$f" ] && mv "$f" "${f%.dylib}-${V}-macos-${{ matrix.arch }}.dylib"
@@ -284,7 +283,6 @@ jobs:
           Get-ChildItem -Path build -Recurse -Include *.lib | ForEach-Object {
             Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64.lib"
           }
-          Copy-Item src/msdfgen_c_api.h -Destination artifacts/
           Get-ChildItem artifacts/
 
       - name: Upload
@@ -368,7 +366,6 @@ jobs:
           mkdir -p artifacts
           V="${{ needs.prepare.outputs.version }}"
           find build -name "*.so*" -type f -exec cp {} artifacts/ \;
-          cp src/msdfgen_c_api.h artifacts/
           cd artifacts
           for f in *.so*; do
             [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-${{ matrix.arch }}.so"
@@ -383,8 +380,23 @@ jobs:
           retention-days: 7
           compression-level: 6
 
+  upload-headers:
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload header
+        uses: actions/upload-artifact@v4
+        with:
+          name: headers
+          path: src/msdfgen_c_api.h
+          retention-days: 7
+
   release:
-    needs: [prepare, build-macos, build-windows, build-linux]
+    needs: [prepare, build-macos, build-windows, build-linux, upload-headers]
     if: needs.prepare.outputs.is_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -395,15 +407,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
 
-      - name: Package
+      - name: Package per platform
         run: |
           V="${{ needs.prepare.outputs.version }}"
           mkdir -p release
-          cd artifacts
-          zip -r "../release/msdfgen-binaries-${V}-all.zip" .
-          ls -la ../release/
+          for platform in macos-arm64 macos-x64 windows-x64 linux-x64 linux-arm64; do
+            if [ -d "artifacts/$platform" ]; then
+              cd "artifacts/$platform"
+              zip -r "../../release/msdfgen-binaries-${V}-${platform}.zip" .
+              cd ../..
+            fi
+          done
+          # Package headers separately
+          if [ -d "artifacts/headers" ]; then
+            cd artifacts/headers
+            zip -r "../../release/msdfgen-binaries-${V}-headers.zip" .
+            cd ../..
+          fi
+          ls -la release/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -435,7 +457,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-dev:
-    needs: [prepare, build-macos, build-windows, build-linux]
+    needs: [prepare, build-macos, build-windows, build-linux, upload-headers]
     if: needs.prepare.outputs.is_release != 'true' && needs.prepare.outputs.should_build == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -446,13 +468,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
 
-      - name: Package
+      - name: Package per platform
         run: |
           mkdir -p release
-          cd artifacts
-          zip -r "../release/msdfgen-binaries-dev-latest.zip" .
+          for platform in macos-arm64 macos-x64 windows-x64 linux-x64 linux-arm64; do
+            if [ -d "artifacts/$platform" ]; then
+              cd "artifacts/$platform"
+              zip -r "../../release/msdfgen-binaries-dev-latest-${platform}.zip" .
+              cd ../..
+            fi
+          done
+          # Package headers separately
+          if [ -d "artifacts/headers" ]; then
+            cd artifacts/headers
+            zip -r "../../release/msdfgen-binaries-dev-latest-headers.zip" .
+            cd ../..
+          fi
+          ls -la release/
 
       - name: Update dev release
         uses: softprops/action-gh-release@v2
@@ -464,8 +497,6 @@ jobs:
 
             **Built:** ${{ needs.prepare.outputs.version }}
             **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_sha }}
-
-            ⚠️ Unstable. Use versioned releases for production.
           files: release/*
           draft: false
           prerelease: true
