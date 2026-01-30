@@ -138,10 +138,10 @@ jobs:
         include:
           - arch: arm64
             triplet: arm64-osx
-            runner: macos-14
+            runner: macos-15
           - arch: x64
             triplet: x64-osx
-            runner: macos-13
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -299,7 +299,17 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.should_build == 'true'
     timeout-minutes: 60
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            triplet: x64-linux
+            runner: ubuntu-22.04
+          - arch: arm64
+            triplet: arm64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
 
@@ -343,12 +353,12 @@ jobs:
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
             -G Ninja \
             -DMSDFGEN_USE_SKIA=ON \
             -DBUILD_SHARED_LIBS=ON
         env:
-          VCPKG_DEFAULT_TRIPLET: x64-linux
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -361,14 +371,14 @@ jobs:
           cp src/msdfgen_c_api.h artifacts/
           cd artifacts
           for f in *.so*; do
-            [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-x64.so"
+            [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-${{ matrix.arch }}.so"
           done
           ls -la
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
+          name: linux-${{ matrix.arch }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -415,6 +425,7 @@ jobs:
             - macOS x64 (Intel)
             - Windows x64
             - Linux x64
+            - Linux arm64
 
             See [README](https://github.com/${{ github.repository }}) for usage.
           files: release/*

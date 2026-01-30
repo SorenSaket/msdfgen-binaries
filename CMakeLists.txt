@@ -138,8 +138,6 @@ target_compile_features(msdfgen-c PRIVATE cxx_std_17)
 
 set_target_properties(msdfgen-c PROPERTIES
     OUTPUT_NAME "msdfgen_c"
-    VERSION ${PROJECT_VERSION}
-    SOVERSION 1
 )
 
 if(WIN32)
