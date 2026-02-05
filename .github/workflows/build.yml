@@ -137,10 +137,10 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            triplet: arm64-osx
+            triplet: arm64-osx-static
             runner: macos-15
           - arch: x64
-            triplet: x64-osx
+            triplet: x64-osx-static
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     env:
@@ -187,6 +187,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/triplets \
             -G Ninja \
             -DMSDFGEN_USE_SKIA=ON \
             -DBUILD_SHARED_LIBS=ON
@@ -262,12 +263,12 @@ jobs:
           cmake -B build `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -G Ninja `
             -DMSDFGEN_USE_SKIA=ON `
             -DBUILD_SHARED_LIBS=ON
         env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -302,10 +303,10 @@ jobs:
       matrix:
         include:
           - arch: x64
-            triplet: x64-linux
+            triplet: x64-linux-static
             runner: ubuntu-22.04
           - arch: arm64
-            triplet: arm64-linux
+            triplet: arm64-linux-static
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     env:
@@ -352,6 +353,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/triplets \
             -G Ninja \
             -DMSDFGEN_USE_SKIA=ON \
             -DBUILD_SHARED_LIBS=ON
