@@ -8,18 +8,15 @@ option(MSDFGEN_USE_SKIA "Build with the Skia library for geometry preprocessing"
 
 # Select vcpkg features based on options - must be set before project()
 # for vcpkg to install the right dependencies
-# Note: Features can also be set via VCPKG_MANIFEST_FEATURES environment variable
-if(NOT MSDFGEN_VCPKG_FEATURES_SET AND NOT DEFINED ENV{VCPKG_MANIFEST_FEATURES})
-    set(VCPKG_MANIFEST_NO_DEFAULT_FEATURES ON CACHE STRING "")
-    set(_features "")
-    if(MSDFGEN_USE_FREETYPE)
-        list(APPEND _features "extensions")
-    endif()
-    if(MSDFGEN_USE_SKIA)
-        list(APPEND _features "geometry-preprocessing")
-    endif()
-    set(VCPKG_MANIFEST_FEATURES "${_features}" CACHE STRING "")
+set(VCPKG_MANIFEST_NO_DEFAULT_FEATURES ON CACHE STRING "")
+set(_features "")
+if(MSDFGEN_USE_FREETYPE)
+    list(APPEND _features "extensions")
 endif()
+if(MSDFGEN_USE_SKIA)
+    list(APPEND _features "geometry-preprocessing")
+endif()
+set(VCPKG_MANIFEST_FEATURES "${_features}" CACHE STRING "")
 
 # ============================================================================
 project(msdfgen-binaries VERSION 1.13.0 LANGUAGES CXX)

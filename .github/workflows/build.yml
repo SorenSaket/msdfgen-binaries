@@ -158,7 +158,7 @@ jobs:
             cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
     runs-on: ${{ matrix.runner }}
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
 
     steps:
       - name: Checkout
@@ -166,13 +166,6 @@ jobs:
         with:
           submodules: true
           fetch-depth: 1
-
-      - name: Export GitHub Actions cache variables
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Checkout msdfgen version
         run: |
@@ -187,6 +180,20 @@ jobs:
           for pkg in cmake ninja pkg-config; do
             brew list $pkg &>/dev/null || brew install $pkg
           done
+
+      - name: Create vcpkg binary cache
+        if: matrix.config == 'full'
+        run: mkdir -p "${{ github.workspace }}/vcpkg-binary-cache"
+
+      - name: Restore vcpkg binary cache
+        if: matrix.config == 'full'
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-${{ matrix.triplet }}-
 
       - name: Setup vcpkg
         if: matrix.config == 'full'
@@ -203,11 +210,9 @@ jobs:
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
             ${{ matrix.cmake_flags }} \
-            -DBUILD_SHARED_LIBS=ON \
-            -DMSDFGEN_VCPKG_FEATURES_SET=ON
+            -DBUILD_SHARED_LIBS=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -247,7 +252,7 @@ jobs:
             triplet: x64-windows
     runs-on: windows-latest
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
 
     steps:
       - name: Checkout
@@ -256,13 +261,6 @@ jobs:
           submodules: true
           fetch-depth: 1
 
-      - name: Export GitHub Actions cache variables
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
       - name: Checkout msdfgen version
         shell: bash
         run: |
@@ -270,6 +268,21 @@ jobs:
           git fetch --tags origin
           git checkout ${{ needs.prepare.outputs.msdfgen_ref }}
           git log -1 --oneline
+
+      - name: Create vcpkg binary cache
+        if: matrix.config == 'full'
+        shell: bash
+        run: mkdir -p "${{ github.workspace }}/vcpkg-binary-cache"
+
+      - name: Restore vcpkg binary cache
+        if: matrix.config == 'full'
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-${{ matrix.triplet }}-
 
       - name: Setup vcpkg
         if: matrix.config == 'full'
@@ -286,17 +299,14 @@ jobs:
 
       - name: Configure
         run: |
-          $features = if ("${{ matrix.config }}" -eq "full") { "extensions;geometry-preprocessing" } else { "" }
           cmake -B build `
             -DCMAKE_BUILD_TYPE=Release `
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1}', github.workspace, matrix.triplet) || '' }} `
             -G Ninja `
             ${{ matrix.cmake_flags }} `
-            -DBUILD_SHARED_LIBS=ON `
-            -DMSDFGEN_VCPKG_FEATURES_SET=ON
+            -DBUILD_SHARED_LIBS=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -352,7 +362,7 @@ jobs:
             cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
     runs-on: ${{ matrix.runner }}
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
 
     steps:
       - name: Install dependencies
@@ -370,19 +380,26 @@ jobs:
           submodules: true
           fetch-depth: 1
 
-      - name: Export GitHub Actions cache variables
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
       - name: Checkout msdfgen version
         run: |
           cd msdfgen
           git fetch --tags origin
           git checkout ${{ needs.prepare.outputs.msdfgen_ref }}
           git log -1 --oneline
+
+      - name: Create vcpkg binary cache
+        if: matrix.config == 'full'
+        run: mkdir -p "${{ github.workspace }}/vcpkg-binary-cache"
+
+      - name: Restore vcpkg binary cache
+        if: matrix.config == 'full'
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-${{ matrix.triplet }}-
 
       - name: Setup vcpkg
         if: matrix.config == 'full'
@@ -399,11 +416,9 @@ jobs:
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
             ${{ matrix.cmake_flags }} \
-            -DBUILD_SHARED_LIBS=ON \
-            -DMSDFGEN_VCPKG_FEATURES_SET=ON
+            -DBUILD_SHARED_LIBS=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
