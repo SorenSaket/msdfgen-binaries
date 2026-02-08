@@ -203,9 +203,11 @@ jobs:
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
             ${{ matrix.cmake_flags }} \
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DMSDFGEN_VCPKG_FEATURES_SET=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -284,14 +286,17 @@ jobs:
 
       - name: Configure
         run: |
+          $features = if ("${{ matrix.config }}" -eq "full") { "extensions;geometry-preprocessing" } else { "" }
           cmake -B build `
             -DCMAKE_BUILD_TYPE=Release `
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1}', github.workspace, matrix.triplet) || '' }} `
             -G Ninja `
             ${{ matrix.cmake_flags }} `
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON `
+            -DMSDFGEN_VCPKG_FEATURES_SET=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -394,9 +399,11 @@ jobs:
             ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
             ${{ matrix.cmake_flags }} \
-            -DBUILD_SHARED_LIBS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DMSDFGEN_VCPKG_FEATURES_SET=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          VCPKG_MANIFEST_FEATURES: ${{ matrix.config == 'full' && 'extensions;geometry-preprocessing' || '' }}
 
       - name: Build
         run: cmake --build build --config Release --parallel

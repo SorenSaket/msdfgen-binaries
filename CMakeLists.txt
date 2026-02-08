@@ -1,10 +1,30 @@
 cmake_minimum_required(VERSION 3.15)
 
+# ============================================================================
+# vcpkg feature selection (must be before project())
+# ============================================================================
+option(MSDFGEN_USE_FREETYPE "Build with FreeType library for font loading" ON)
+option(MSDFGEN_USE_SKIA "Build with the Skia library for geometry preprocessing" OFF)
+
+# Select vcpkg features based on options - must be set before project()
+# for vcpkg to install the right dependencies
+# Note: Features can also be set via VCPKG_MANIFEST_FEATURES environment variable
+if(NOT MSDFGEN_VCPKG_FEATURES_SET AND NOT DEFINED ENV{VCPKG_MANIFEST_FEATURES})
+    set(VCPKG_MANIFEST_NO_DEFAULT_FEATURES ON CACHE STRING "")
+    set(_features "")
+    if(MSDFGEN_USE_FREETYPE)
+        list(APPEND _features "extensions")
+    endif()
+    if(MSDFGEN_USE_SKIA)
+        list(APPEND _features "geometry-preprocessing")
+    endif()
+    set(VCPKG_MANIFEST_FEATURES "${_features}" CACHE STRING "")
+endif()
+
+# ============================================================================
 project(msdfgen-binaries VERSION 1.13.0 LANGUAGES CXX)
 
 # Options
-option(MSDFGEN_USE_FREETYPE "Build with FreeType library for font loading" ON)
-option(MSDFGEN_USE_SKIA "Build with the Skia library for geometry preprocessing" OFF)
 option(BUILD_SHARED_LIBS "Generate dynamic library files instead of static" ON)
 option(MSDFGEN_BUILD_STANDALONE "Build the msdfgen standalone executable" OFF)
 
@@ -22,17 +42,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Position independent code for shared libraries
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-# Select vcpkg features based on options
-if(NOT MSDFGEN_VCPKG_FEATURES_SET)
-    set(VCPKG_MANIFEST_NO_DEFAULT_FEATURES ON)
-    if(MSDFGEN_USE_FREETYPE)
-        list(APPEND VCPKG_MANIFEST_FEATURES "extensions")
-    endif()
-    if(MSDFGEN_USE_SKIA)
-        list(APPEND VCPKG_MANIFEST_FEATURES "geometry-preprocessing")
-    endif()
-endif()
 
 # Find dependencies via vcpkg (only if extensions are enabled)
 if(MSDFGEN_USE_FREETYPE)
