@@ -365,6 +365,9 @@ MSDFGEN_C_API const char* msdfgen_get_version(void);
 /* Check if Skia support is available */
 MSDFGEN_C_API int msdfgen_has_skia_support(void);
 
+/* Check if extension support (FreeType, PNG, SVG) is available */
+MSDFGEN_C_API int msdfgen_has_extension_support(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -139,9 +139,23 @@ jobs:
           - arch: arm64
             triplet: arm64-osx
             runner: macos-15
+            config: full
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=ON -DMSDFGEN_USE_SKIA=ON"
           - arch: x64
             triplet: x64-osx
             runner: macos-15-intel
+            config: full
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=ON -DMSDFGEN_USE_SKIA=ON"
+          - arch: arm64
+            triplet: arm64-osx
+            runner: macos-15
+            config: core
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
+          - arch: x64
+            triplet: x64-osx
+            runner: macos-15-intel
+            config: core
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
     runs-on: ${{ matrix.runner }}
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -175,6 +189,7 @@ jobs:
           done
 
       - name: Setup vcpkg
+        if: matrix.config == 'full'
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
@@ -185,11 +200,9 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/triplets \
+            ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
-            -DMSDFGEN_USE_SKIA=ON \
+            ${{ matrix.cmake_flags }} \
             -DBUILD_SHARED_LIBS=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
@@ -204,14 +217,14 @@ jobs:
           find build -name "*.dylib" -exec cp {} artifacts/ \;
           cd artifacts
           for f in *.dylib; do
-            [ -f "$f" ] && mv "$f" "${f%.dylib}-${V}-macos-${{ matrix.arch }}.dylib"
+            [ -f "$f" ] && mv "$f" "${f%.dylib}-${V}-macos-${{ matrix.arch }}-${{ matrix.config }}.dylib"
           done
           ls -la
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}
+          name: macos-${{ matrix.arch }}-${{ matrix.config }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -220,6 +233,16 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.should_build == 'true'
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: full
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=ON -DMSDFGEN_USE_SKIA=ON"
+            triplet: x64-windows-static-md
+          - config: core
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
+            triplet: x64-windows
     runs-on: windows-latest
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -247,6 +270,7 @@ jobs:
           git log -1 --oneline
 
       - name: Setup vcpkg
+        if: matrix.config == 'full'
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
@@ -262,13 +286,12 @@ jobs:
         run: |
           cmake -B build `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+            ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1}', github.workspace, matrix.triplet) || '' }} `
             -G Ninja `
-            -DMSDFGEN_USE_SKIA=ON `
+            ${{ matrix.cmake_flags }} `
             -DBUILD_SHARED_LIBS=ON
         env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -279,17 +302,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts
           $V = "${{ needs.prepare.outputs.version }}"
           Get-ChildItem -Path build -Recurse -Include *.dll | ForEach-Object {
-            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64.dll"
+            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64-${{ matrix.config }}.dll"
           }
           Get-ChildItem -Path build -Recurse -Include *.lib | ForEach-Object {
-            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64.lib"
+            Copy-Item $_.FullName -Destination "artifacts/$($_.BaseName)-${V}-windows-x64-${{ matrix.config }}.lib"
           }
           Get-ChildItem artifacts/
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x64
+          name: windows-x64-${{ matrix.config }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -305,9 +328,23 @@ jobs:
           - arch: x64
             triplet: x64-linux
             runner: ubuntu-22.04
+            config: full
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=ON -DMSDFGEN_USE_SKIA=ON"
           - arch: arm64
             triplet: arm64-linux
             runner: ubuntu-24.04-arm
+            config: full
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=ON -DMSDFGEN_USE_SKIA=ON"
+          - arch: x64
+            triplet: x64-linux
+            runner: ubuntu-22.04
+            config: core
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
+          - arch: arm64
+            triplet: arm64-linux
+            runner: ubuntu-24.04-arm
+            config: core
+            cmake_flags: "-DMSDFGEN_USE_FREETYPE=OFF -DMSDFGEN_USE_SKIA=OFF"
     runs-on: ${{ matrix.runner }}
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -316,9 +353,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
-            libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev \
-            libxinerama-dev libxcursor-dev libxi-dev libfontconfig1-dev
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config
+          if [ "${{ matrix.config }}" == "full" ]; then
+            sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev \
+              libxinerama-dev libxcursor-dev libxi-dev libfontconfig1-dev
+          fi
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -341,6 +380,7 @@ jobs:
           git log -1 --oneline
 
       - name: Setup vcpkg
+        if: matrix.config == 'full'
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
@@ -351,11 +391,9 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/triplets \
+            ${{ matrix.config == 'full' && format('-DCMAKE_TOOLCHAIN_FILE={0}/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET={1} -DVCPKG_OVERLAY_TRIPLETS={0}/triplets', github.workspace, matrix.triplet) || '' }} \
             -G Ninja \
-            -DMSDFGEN_USE_SKIA=ON \
+            ${{ matrix.cmake_flags }} \
             -DBUILD_SHARED_LIBS=ON
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
@@ -370,14 +408,14 @@ jobs:
           find build -name "*.so*" -type f -exec cp {} artifacts/ \;
           cd artifacts
           for f in *.so*; do
-            [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-${{ matrix.arch }}.so"
+            [ -f "$f" ] && base=$(echo "$f" | sed 's/\.so.*//') && mv "$f" "${base}-${V}-linux-${{ matrix.arch }}-${{ matrix.config }}.so"
           done
           ls -la
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
+          name: linux-${{ matrix.arch }}-${{ matrix.config }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -415,11 +453,13 @@ jobs:
           V="${{ needs.prepare.outputs.version }}"
           mkdir -p release
           for platform in macos-arm64 macos-x64 windows-x64 linux-x64 linux-arm64; do
-            if [ -d "artifacts/$platform" ]; then
-              cd "artifacts/$platform"
-              zip -r "../../release/msdfgen-binaries-${V}-${platform}.zip" .
-              cd ../..
-            fi
+            for config in full core; do
+              if [ -d "artifacts/${platform}-${config}" ]; then
+                cd "artifacts/${platform}-${config}"
+                zip -r "../../release/msdfgen-binaries-${V}-${platform}-${config}.zip" .
+                cd ../..
+              fi
+            done
           done
           # Package headers separately
           if [ -d "artifacts/headers" ]; then
@@ -435,14 +475,29 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: msdfgen ${{ needs.prepare.outputs.version }}
           body: |
-            Pre-built msdfgen ${{ needs.prepare.outputs.version }} binaries with Skia geometry preprocessing.
+            Pre-built msdfgen ${{ needs.prepare.outputs.version }} binaries.
+
+            ## Build Variants
+
+            Each platform has two build variants:
+
+            | Variant | Description | Libraries |
+            |---------|-------------|-----------|
+            | `full` | Complete build with all features | msdfgen-core, msdfgen-ext, msdfgen-c |
+            | `core` | Core only, no external dependencies | msdfgen-core, msdfgen-c |
+
+            ### Full Variant
+            Includes FreeType (font loading), TinyXML2 (SVG), libpng (PNG export), and Skia (geometry preprocessing).
+
+            ### Core Variant
+            Zero-dependency build with only msdfgen-core. Use when you don't need font loading or file I/O and want minimal binary size.
 
             ## Libraries
             | Library | Description |
             |---------|-------------|
             | `msdfgen-core` | Core MSDF generation |
-            | `msdfgen-ext` | Extensions (FreeType, TinyXML2, libpng, Skia) |
-            | `msdfgen_c` | C API wrapper for FFI/P/Invoke |
+            | `msdfgen-ext` | Extensions (FreeType, TinyXML2, libpng, Skia) - full variant only |
+            | `msdfgen-c` | C API wrapper for FFI/P/Invoke |
 
             ## Platforms
             - macOS arm64 (Apple Silicon)
@@ -475,11 +530,13 @@ jobs:
         run: |
           mkdir -p release
           for platform in macos-arm64 macos-x64 windows-x64 linux-x64 linux-arm64; do
-            if [ -d "artifacts/$platform" ]; then
-              cd "artifacts/$platform"
-              zip -r "../../release/msdfgen-binaries-dev-latest-${platform}.zip" .
-              cd ../..
-            fi
+            for config in full core; do
+              if [ -d "artifacts/${platform}-${config}" ]; then
+                cd "artifacts/${platform}-${config}"
+                zip -r "../../release/msdfgen-binaries-dev-latest-${platform}-${config}.zip" .
+                cd ../..
+              fi
+            done
           done
           # Package headers separately
           if [ -d "artifacts/headers" ]; then
@@ -499,6 +556,9 @@ jobs:
 
             **Built:** ${{ needs.prepare.outputs.version }}
             **Source:** msdfgen@${{ needs.prepare.outputs.msdfgen_sha }}
+
+            ## Build Variants
+            Each platform includes both `full` (with FreeType/Skia) and `core` (no dependencies) variants.
           files: release/*
           draft: false
           prerelease: true

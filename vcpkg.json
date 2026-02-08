@@ -2,13 +2,24 @@
     "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/master/docs/vcpkg.schema.json",
     "name": "msdfgen-binaries",
     "version": "1.13.0",
-    "dependencies": [
-        "freetype",
-        "tinyxml2",
-        "libpng",
-        {
-            "name": "skia",
-            "default-features": false
+    "dependencies": [],
+    "features": {
+        "extensions": {
+            "description": "Build msdfgen-ext with font loading and image saving support",
+            "dependencies": [
+                "freetype",
+                "tinyxml2",
+                "libpng"
+            ]
+        },
+        "geometry-preprocessing": {
+            "description": "Build with Skia library for geometry preprocessing",
+            "dependencies": [
+                {
+                    "name": "skia",
+                    "default-features": false
+                }
+            ]
         }
-    ]
+    }
 }

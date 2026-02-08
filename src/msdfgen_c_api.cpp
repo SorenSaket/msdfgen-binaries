@@ -4,7 +4,10 @@
 
 #include "msdfgen_c_api.h"
 #include "msdfgen.h"
+
+#ifdef MSDFGEN_USE_EXTENSIONS
 #include "msdfgen-ext.h"
+#endif
 
 #include <cstdlib>
 #include <cstring>
@@ -17,6 +20,7 @@ using namespace msdfgen;
  * Internal helpers
  * ============================================================================ */
 
+#ifdef MSDFGEN_USE_EXTENSIONS
 static FontCoordinateScaling toFontScaling(MsdfgenFontCoordinateScaling scaling) {
     switch (scaling) {
         case MSDFGEN_FONT_SCALING_NONE: return FONT_SCALING_NONE;
@@ -25,6 +29,7 @@ static FontCoordinateScaling toFontScaling(MsdfgenFontCoordinateScaling scaling)
         default: return FONT_SCALING_LEGACY;
     }
 }
+#endif
 
 static ErrorCorrectionConfig toErrorCorrectionConfig(const MsdfgenErrorCorrectionConfig& config) {
     ErrorCorrectionConfig::Mode mode;
@@ -488,6 +493,8 @@ int msdfgen_resolve_shape_geometry(MsdfgenShape handle) {
  * SVG import
  * ============================================================================ */
 
+#ifdef MSDFGEN_USE_EXTENSIONS
+
 #ifndef MSDFGEN_DISABLE_SVG
 
 int msdfgen_shape_load_from_svg_path(MsdfgenShape handle, const char* pathDef, double endpointSnapRange) {
@@ -719,6 +726,31 @@ int msdfgen_font_get_variation_axis(MsdfgenFreetype, MsdfgenFont, int, MsdfgenFo
 
 #endif
 
+#else // !MSDFGEN_USE_EXTENSIONS
+
+int msdfgen_shape_load_from_svg_path(MsdfgenShape, const char*, double) { return 0; }
+int msdfgen_shape_load_from_svg_file(MsdfgenShape, const char*, int) { return 0; }
+int msdfgen_shape_load_from_svg_file_ex(MsdfgenShape, MsdfgenBounds*, const char*) { return 0; }
+
+MsdfgenFreetype msdfgen_freetype_init(void) { return nullptr; }
+void msdfgen_freetype_deinit(MsdfgenFreetype) {}
+MsdfgenFont msdfgen_font_load(MsdfgenFreetype, const char*) { return nullptr; }
+MsdfgenFont msdfgen_font_load_data(MsdfgenFreetype, const unsigned char*, int) { return nullptr; }
+void msdfgen_font_destroy(MsdfgenFont) {}
+int msdfgen_font_get_metrics(MsdfgenFont, MsdfgenFontMetrics*, MsdfgenFontCoordinateScaling) { return 0; }
+int msdfgen_font_get_whitespace_width(MsdfgenFont, double*, double*, MsdfgenFontCoordinateScaling) { return 0; }
+int msdfgen_font_get_glyph_count(MsdfgenFont, unsigned int*) { return 0; }
+int msdfgen_font_get_glyph_index(MsdfgenFont, unsigned int, unsigned int*) { return 0; }
+int msdfgen_font_load_glyph(MsdfgenShape, MsdfgenFont, unsigned int, MsdfgenFontCoordinateScaling, double*) { return 0; }
+int msdfgen_font_load_glyph_by_index(MsdfgenShape, MsdfgenFont, unsigned int, MsdfgenFontCoordinateScaling, double*) { return 0; }
+int msdfgen_font_get_kerning(MsdfgenFont, unsigned int, unsigned int, MsdfgenFontCoordinateScaling, double*) { return 0; }
+int msdfgen_font_get_kerning_by_index(MsdfgenFont, unsigned int, unsigned int, MsdfgenFontCoordinateScaling, double*) { return 0; }
+int msdfgen_font_set_variation_axis(MsdfgenFreetype, MsdfgenFont, const char*, double) { return 0; }
+int msdfgen_font_get_variation_axis_count(MsdfgenFreetype, MsdfgenFont, int*) { return 0; }
+int msdfgen_font_get_variation_axis(MsdfgenFreetype, MsdfgenFont, int, MsdfgenFontVariationAxis*) { return 0; }
+
+#endif // MSDFGEN_USE_EXTENSIONS
+
 /* ============================================================================
  * Utility functions
  * ============================================================================ */
@@ -762,6 +794,14 @@ const char* msdfgen_get_version(void) {
 
 int msdfgen_has_skia_support(void) {
 #ifdef MSDFGEN_USE_SKIA
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int msdfgen_has_extension_support(void) {
+#ifdef MSDFGEN_USE_EXTENSIONS
     return 1;
 #else
     return 0;
